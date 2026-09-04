@@ -1,0 +1,71 @@
+--------------------------------------------------------------------------------
+-- File Name       : 01_top_sql_elapsed.sql
+-- Category        : 07_Performance_Tuning
+-- Purpose         : Top SQL by cumulative elapsed time in the cursor cache
+-- Oracle Version  : 19c
+-- EBS Version     : R12.2.x where applicable
+-- Difficulty      : Intermediate
+-- Production Use  : YES
+--------------------------------------------------------------------------------
+-- DESCRIPTION
+-- Ranks cursors in GV$SQL by elapsed time. This is since the cursor
+-- was loaded (not a wall-clock rate). Use AWR (08 / AWR scripts) for
+-- a time-bounded ranking. Difference vs similar scripts: this file is
+-- strictly ordered by elapsed time so you do not mix units.
+--
+-- LICENSING: V$SQL is included with Enterprise Edition. DBA_HIST_* and ASH require Diagnostics Pack. SQL Tuning Advisor / SQL Monitor historical require Tuning Pack / Diagnostics Pack.
+--------------------------------------------------------------------------------
+SET LINESIZE 300
+SET PAGESIZE 100
+SET TRIMSPOOL ON
+SET TAB OFF
+SET VERIFY OFF
+COLUMN status FORMAT A20
+
+--------------------------------------------------------------------------------
+-- QUERY 1: Top SQL by elapsed time
+--------------------------------------------------------------------------------
+-- 1. What the query does
+--    Selects from GV$SQL ordered by elapsed_time.
+-- 2. Important columns
+--    SQL_ID, ELAPSED_S, ELA_PER_EXEC_S, PLAN_HASH_VALUE, MODULE, SQL_TEXT.
+-- 3. How to interpret the output
+--    Elapsed includes waits. A SQL with huge elapsed and low executions is a long runner; huge elapsed and huge executions is a high-rate statement.
+-- 4. What indicates a problem
+--    One SQL_ID dominates elapsed and matches the incident window (check FIRST_LOAD_TIME / LAST_ACTIVE_TIME).
+-- 5. Recommended DBA action
+--    Capture SQL_ID → 08_SQL_Tuning execution plan and waits. For history use 08 AWR top SQL.
+-- 6. Production cautions
+--    Safe. GV$SQL can be large; FETCH FIRST limits cost. Do not flush the shared pool.
+-- 7. Required privileges
+--    SELECT on GV_$SQL
+--
+-- Does not require Diagnostics Pack.
+--------------------------------------------------------------------------------
+SELECT
+       sql_id,
+       plan_hash_value,
+       inst_id,
+       child_number,
+       parsing_schema_name,
+       module,
+       executions,
+       ROUND(elapsed_time/1e6,1) AS elapsed_s,
+       ROUND(cpu_time/1e6,1) AS cpu_s,
+       buffer_gets,
+       disk_reads,
+       rows_processed,
+       ROUND(elapsed_time/NULLIF(executions,0)/1e6,4) AS ela_per_exec_s,
+       ROUND(buffer_gets/NULLIF(executions,0)) AS gets_per_exec,
+       SUBSTR(sql_text,1,180) AS sql_text
+FROM   gv$sql
+WHERE  executions > 0
+AND    parsing_schema_name NOT IN ('SYS','SYSTEM')
+ORDER BY elapsed_time DESC
+FETCH FIRST 30 ROWS ONLY;
+
+PROMPT
+PROMPT === End of query: Top SQL by elapsed time ===
+PROMPT
+
+-- End of file
